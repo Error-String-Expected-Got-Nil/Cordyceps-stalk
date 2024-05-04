@@ -53,13 +53,24 @@ static void cordyceps_stalk_destroy(void* data)
 static inline bool cordyceps_stalk_start_internal(
 	struct cordyceps_stalk_output* stream, obs_data_t* settings)
 {
-	const char* path = obs_data_get_string(settings, "path");
+	// TODO: Video path hardcoded!
+	//const char* path = obs_data_get_string(settings, "path");
+	const char* path = "C:/cordyceps/test.mp4";
 
 	// Basic startup checks
 	if (!obs_output_can_begin_data_capture(stream->output, 0))
+	{
+		obs_log(LOG_INFO, "Cordyceps-stalk output failed to start; "
+				  "not ready to begin data capture");
 		return false;
+	}
+
 	if (!obs_output_initialize_encoders(stream->output, 0))
+	{
+		obs_log(LOG_INFO, "Cordyceps-stalk output failed to start; "
+				  "failed to initialize encoders");
 		return false;
+	}
 
 	stream->sent_headers = false;
 
@@ -83,9 +94,6 @@ static inline bool cordyceps_stalk_start_internal(
 	if (!vencoder) return false;
 
 	// Will likely only work on Windows, but oh well.
-	// Also, manually constructing the FFMpeg command string is kinda the
-	//  outdated way of doing this, but the plugin template hasn't updated
-	//  to handle the recently added better way, so we're doing it anyways.
 	struct dstr cmd;
 	dstr_init_move_array(&cmd, os_get_executable_path_ptr
 			     ("obs-ffmpeg-mux.exe"));
@@ -98,17 +106,11 @@ static inline bool cordyceps_stalk_start_internal(
 
 	dstr_catf(&cmd, "\" %d %d ", 1, 0);
 
-	int bitrate = (int)obs_data_get_int(settings, "bitrate");
+	// TODO: Bitrate hardcoded!
+	//int bitrate = (int)obs_data_get_int(settings, "bitrate");
+	int bitrate = 2500;
 	video_t *video = obs_get_video();
 	const struct video_output_info *info = video_output_get_info(video);
-
-	int codec_tag = (int)obs_data_get_int(settings, "codec_type");
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-	codec_tag = ((codec_tag >> 24) & 0x000000FF) |
-		    ((codec_tag << 8) & 0x00FF0000) |
-		    ((codec_tag >> 8) & 0x0000FF00) |
-		    ((codec_tag << 24) & 0xFF000000);
-#endif
 
 	enum AVColorPrimaries pri = AVCOL_PRI_UNSPECIFIED;
 	enum AVColorTransferCharacteristic trc = AVCOL_TRC_UNSPECIFIED;
@@ -150,15 +152,16 @@ static inline bool cordyceps_stalk_start_internal(
 			? (int)obs_get_video_hdr_nominal_peak_level()
 			: ((trc == AVCOL_TRC_ARIB_STD_B67) ? 1000 : 0);
 
-	dstr_catf(&cmd, "%s %d %d %d %d %d %d %d %d %d %d %d %d ",
+	dstr_catf(&cmd, "%s %d %d %d %d %d %d %d %d %d %d %d ",
 		  obs_encoder_get_codec(vencoder), bitrate,
 		  obs_output_get_width(stream->output),
 		  obs_output_get_height(stream->output), (int)pri, (int)trc,
 		  (int)spc, (int)range,
 		  (int)determine_chroma_location(
 			  obs_to_ffmpeg_video_format(info->format), spc),
-		  max_luminance, (int)info->fps_num, (int)info->fps_den,
-		  (int)codec_tag);
+		  max_luminance, (int)info->fps_num, (int)info->fps_den);
+
+	stream->pipe = os_process_pipe_create(cmd.array, "w");
 
 	if (!stream->pipe) {
 		obs_log(LOG_ERROR, "Failed to create output process pipe!");
