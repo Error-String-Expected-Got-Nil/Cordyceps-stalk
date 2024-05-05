@@ -33,10 +33,16 @@ static uint64_t cordyceps_stalk_total_bytes(void* data)
 
 static void* cordyceps_stalk_create(obs_data_t* settings, obs_output_t* output)
 {
+	UNUSED_PARAMETER(settings);
+
 	struct cordyceps_stalk_output* stream = bzalloc(sizeof(*stream));
 	stream->output = output;
+	dstr_init_copy(&stream->path, "");
 
-	UNUSED_PARAMETER(settings);
+
+	proc_handler_t* ph = obs_output_get_proc_handler(output);
+	proc_handler_add(ph, "void set_path(in string path)", ph_path_callback,
+			 stream);
 
 	return stream;
 }
@@ -53,36 +59,42 @@ static void cordyceps_stalk_destroy(void* data)
 static inline bool cordyceps_stalk_start_internal(
 	struct cordyceps_stalk_output* stream, obs_data_t* settings)
 {
-	// TODO: Video path hardcoded!
-	//const char* path = obs_data_get_string(settings, "path");
-	const char* path = "C:/cordyceps/test.mp4";
-
-	// Basic startup checks
-	if (!obs_output_can_begin_data_capture(stream->output, 0))
-	{
-		obs_log(LOG_INFO, "Cordyceps-stalk output failed to start; "
-				  "not ready to begin data capture");
+	if (dstr_is_empty(&stream->path)) {
+		obs_log(LOG_WARNING, "Cordyceps-stalk output failed to start; "
+				     "path was empty string");
 		return false;
 	}
 
-	if (!obs_output_initialize_encoders(stream->output, 0))
-	{
-		obs_log(LOG_INFO, "Cordyceps-stalk output failed to start; "
-				  "failed to initialize encoders");
+	// TODO: Video path hacky right now
+	const char* path = stream->path.array;
+
+	// Basic startup checks
+	if (!obs_output_can_begin_data_capture(stream->output, 0)) {
+		obs_log(LOG_WARNING, "Cordyceps-stalk output failed to start; "
+				     "not ready to begin data capture");
+		return false;
+	}
+
+	if (!obs_output_initialize_encoders(stream->output, 0)) {
+		obs_log(LOG_WARNING, "Cordyceps-stalk output failed to start; "
+				     "failed to initialize encoders");
 		return false;
 	}
 
 	stream->sent_headers = false;
 
+	obs_log(LOG_INFO, "attempting to open file '%s'", path);
 	// Check file path is writable
-	FILE* test_file = os_fopen(path, "wb");
+	FILE* test_file = fopen(path, "wb");
 	if (!test_file) {
 		obs_log(LOG_ERROR, "failed to start output, targeted file path"
 				   "was not writable");
 		return false;
 	}
+	obs_log(LOG_INFO, "attempting to close test file");
 	fclose(test_file);
 
+	obs_log(LOG_INFO, "attempting to delete file");
 	// Delete any existing file at path
 	os_unlink(path);
 
@@ -290,6 +302,8 @@ void deactivate(struct cordyceps_stalk_output* stream, bool success)
 bool write_packet(struct cordyceps_stalk_output* stream,
 		  struct encoder_packet* packet)
 {
+	// TODO: Quit early if audio data received?
+
 	struct ffm_packet_info info = {
 		.pts = packet->pts,
 		.dts = packet->dts,
@@ -308,6 +322,7 @@ bool write_packet(struct cordyceps_stalk_output* stream,
 		return false;
 	}
 
+	// TODO: Possibly incorrectly attempting to write audio data?
 	ret = os_process_pipe_write(stream->pipe, packet->data, packet->size);
 	if (ret != sizeof(info)) {
 		obs_log(LOG_ERROR, "Cordyceps-stalk failed to write to pipe "
@@ -319,6 +334,14 @@ bool write_packet(struct cordyceps_stalk_output* stream,
 	stream->total_bytes += packet->size;
 
 	return true;
+}
+
+void ph_path_callback(void* data, calldata_t* cd)
+{
+	struct cordyceps_stalk_output* stream = data;
+	dstr_copy(&stream->path, calldata_string(cd, "path"));
+	obs_log(LOG_INFO, "Proc triggered; Path set to '%s'",
+		stream->path.array);
 }
 
 const struct obs_output_info cordyceps_stalk_output = {

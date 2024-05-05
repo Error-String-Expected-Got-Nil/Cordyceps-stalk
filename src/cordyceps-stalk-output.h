@@ -30,3 +30,4 @@ struct cordyceps_stalk_output {
 
 void deactivate(struct cordyceps_stalk_output*, bool);
 bool write_packet(struct cordyceps_stalk_output*, struct encoder_packet*);
+void ph_path_callback(void*, calldata_t*);
