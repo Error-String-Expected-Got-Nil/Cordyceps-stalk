@@ -302,8 +302,6 @@ void deactivate(struct cordyceps_stalk_output* stream, bool success)
 bool write_packet(struct cordyceps_stalk_output* stream,
 		  struct encoder_packet* packet)
 {
-	// TODO: Quit early if audio data received?
-
 	struct ffm_packet_info info = {
 		.pts = packet->pts,
 		.dts = packet->dts,
@@ -321,10 +319,9 @@ bool write_packet(struct cordyceps_stalk_output* stream,
 		signal_failure(stream);
 		return false;
 	}
-
-	// TODO: Possibly incorrectly attempting to write audio data?
+	
 	ret = os_process_pipe_write(stream->pipe, packet->data, packet->size);
-	if (ret != sizeof(info)) {
+	if (ret != packet->size) {
 		obs_log(LOG_ERROR, "Cordyceps-stalk failed to write to pipe "
 				   "for packet data!");
 		signal_failure(stream);
