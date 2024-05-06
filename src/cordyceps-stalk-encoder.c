@@ -81,6 +81,8 @@ static void* cordyceps_stalk_encoder_create(obs_data_t* settings,
 
 		x264_encoder_headers(cordyceps_stalk_encoder->context, &nals,
 				     &nal_count);
+
+		// TODO: Not finished, copy OBS implementation verbatim!
 	}
 
 	if (!cordyceps_stalk_encoder->context) {
@@ -96,5 +98,5 @@ struct obs_encoder_info cordyceps_stalk_encoder = {
 	.type = OBS_ENCODER_VIDEO,
 	.codec = "h264",
 	.get_name = cordyceps_stalk_encoder_get_name,
-
+	.create = cordyceps_stalk_encoder_create
 };
