@@ -16,22 +16,25 @@ You should have received a copy of the GNU General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
+// TODO: Remove frame request code here, rework when encoder is done
+
 #include "cordyceps-stalk-output.h"
 
-static const char* cordyceps_stalk_get_name(void* type)
+static const char* cordyceps_stalk_output_get_name(void* type)
 {
 	UNUSED_PARAMETER(type);
 	// No translation because I don't want to deal with that
 	return "Cordyceps Stalk Output";
 }
 
-static uint64_t cordyceps_stalk_total_bytes(void* data)
+static uint64_t cordyceps_stalk_output_total_bytes(void* data)
 {
 	struct cordyceps_stalk_output* stream = data;
 	return stream->total_bytes;
 }
 
-static void* cordyceps_stalk_create(obs_data_t* settings, obs_output_t* output)
+static void* cordyceps_stalk_output_create(obs_data_t* settings,
+					   obs_output_t* output)
 {
 	UNUSED_PARAMETER(settings);
 
@@ -39,15 +42,22 @@ static void* cordyceps_stalk_create(obs_data_t* settings, obs_output_t* output)
 	stream->output = output;
 	dstr_init_copy(&stream->path, "");
 
-
 	proc_handler_t* ph = obs_output_get_proc_handler(output);
-	proc_handler_add(ph, "void set_path(in string path)", ph_path_callback,
+	proc_handler_add(ph, "void set_path(in string path)", ph_set_path,
 			 stream);
+	proc_handler_add(ph, "void request_frames(in int count)",
+			 ph_request_frames, stream);
+	proc_handler_add(ph, "void set_realtime_mode(in bool value)",
+			 ph_set_realtime_mode, stream);
+	proc_handler_add(ph, "void get_written_frame_count(out int count)",
+			 ph_get_written_frame_count, stream);
+
+	pthread_mutex_init(&stream->mutex, NULL);
 
 	return stream;
 }
 
-static void cordyceps_stalk_destroy(void* data)
+static void cordyceps_stalk_output_destroy(void* data)
 {
 	struct cordyceps_stalk_output* stream = data;
 
@@ -56,7 +66,7 @@ static void cordyceps_stalk_destroy(void* data)
 	bfree(stream);
 }
 
-static inline bool cordyceps_stalk_start_internal(
+static inline bool cordyceps_stalk_output_start_internal(
 	struct cordyceps_stalk_output* stream, obs_data_t* settings)
 {
 	if (dstr_is_empty(&stream->path)) {
@@ -80,6 +90,10 @@ static inline bool cordyceps_stalk_start_internal(
 				     "failed to initialize encoders");
 		return false;
 	}
+
+	stream->requested_frames = 0;
+	stream->realtime_mode = false;
+	stream->written_frames = 0;
 
 	stream->sent_headers = false;
 
@@ -192,18 +206,18 @@ static inline bool cordyceps_stalk_start_internal(
 	return true;
 }
 
-static bool cordyceps_stalk_start(void* data)
+static bool cordyceps_stalk_output_start(void* data)
 {
 	struct cordyceps_stalk_output* stream = data;
 
 	obs_data_t* settings = obs_output_get_settings(stream->output);
-	bool success = cordyceps_stalk_start_internal(stream, settings);
+	bool success = cordyceps_stalk_output_start_internal(stream, settings);
 	obs_data_release(settings);
 
 	return success;
 }
 
-static void cordyceps_stalk_stop(void* data, uint64_t ts)
+static void cordyceps_stalk_output_stop(void* data, uint64_t ts)
 {
 	struct cordyceps_stalk_output* stream = data;
 
@@ -212,17 +226,6 @@ static void cordyceps_stalk_stop(void* data, uint64_t ts)
 		os_atomic_set_bool(&stream->stopping, true);
 		os_atomic_set_bool(&stream->capturing, false);
 	}
-}
-
-static obs_properties_t* cordyceps_stalk_properties(void* unused)
-{
-	UNUSED_PARAMETER(unused);
-
-	obs_properties_t* props = obs_properties_create();
-
-	obs_properties_add_text(props, "path", "File Path", OBS_TEXT_DEFAULT);
-
-	return props;
 }
 
 // Only video headers for now
@@ -241,7 +244,8 @@ static bool send_headers(struct cordyceps_stalk_output* stream)
 	return write_packet(stream, &packet);
 }
 
-static void cordyceps_stalk_mux_data(void* data, struct encoder_packet* packet)
+static void cordyceps_stalk_output_mux_data(void* data,
+					    struct encoder_packet* packet)
 {
 	struct cordyceps_stalk_output* stream = data;
 
@@ -264,6 +268,21 @@ static void cordyceps_stalk_mux_data(void* data, struct encoder_packet* packet)
 			return;
 		}
 	}
+
+	bool quit_early = false;
+	pthread_mutex_lock(&stream->mutex);
+
+	if (!stream->realtime_mode) {
+		if (stream->requested_frames == 0) {
+			quit_early = true;
+		} else {
+			stream->requested_frames--;
+			stream->written_frames++;
+		}
+	}
+
+	pthread_mutex_unlock(&stream->mutex);
+	if (quit_early) return;
 
 	write_packet(stream, packet);
 }
@@ -319,7 +338,7 @@ bool write_packet(struct cordyceps_stalk_output* stream,
 		signal_failure(stream);
 		return false;
 	}
-	
+
 	ret = os_process_pipe_write(stream->pipe, packet->data, packet->size);
 	if (ret != packet->size) {
 		obs_log(LOG_ERROR, "Cordyceps-stalk failed to write to pipe "
@@ -333,7 +352,7 @@ bool write_packet(struct cordyceps_stalk_output* stream,
 	return true;
 }
 
-void ph_path_callback(void* data, calldata_t* cd)
+void ph_set_path(void* data, calldata_t* cd)
 {
 	struct cordyceps_stalk_output* stream = data;
 	dstr_copy(&stream->path, calldata_string(cd, "path"));
@@ -341,16 +360,52 @@ void ph_path_callback(void* data, calldata_t* cd)
 		stream->path.array);
 }
 
+void ph_request_frames(void* data, calldata_t* cd)
+{
+	struct cordyceps_stalk_output* stream = data;
+
+	int64_t count = calldata_int(cd, "count");
+
+	if (count < 0) count = 0;
+
+	pthread_mutex_lock(&stream->mutex);
+	stream->requested_frames += count;
+	pthread_mutex_unlock(&stream->mutex);
+}
+
+void ph_set_realtime_mode(void* data, calldata_t* cd)
+{
+	struct cordyceps_stalk_output* stream = data;
+
+	bool value = calldata_bool(cd, "value");
+
+	pthread_mutex_lock(&stream->mutex);
+	stream->realtime_mode = value;
+	pthread_mutex_unlock(&stream->mutex);
+}
+
+void ph_get_written_frame_count(void* data, calldata_t* cd)
+{
+	struct cordyceps_stalk_output* stream = data;
+
+	int64_t written_frames;
+
+	pthread_mutex_lock(&stream->mutex);
+	written_frames = stream->written_frames;
+	pthread_mutex_unlock(&stream->mutex);
+
+	calldata_set_int(cd, "count", written_frames);
+}
+
 const struct obs_output_info cordyceps_stalk_output = {
 	.id = "cordyceps-stalk-output",
 	.flags = OBS_OUTPUT_VIDEO | OBS_OUTPUT_ENCODED,
 	.encoded_video_codecs = "h264",
-	.get_name = cordyceps_stalk_get_name,
-	.get_total_bytes = cordyceps_stalk_total_bytes,
-	.get_properties = cordyceps_stalk_properties,
-	.create = cordyceps_stalk_create,
-	.destroy = cordyceps_stalk_destroy,
-	.start = cordyceps_stalk_start,
-	.stop = cordyceps_stalk_stop,
-	.encoded_packet = cordyceps_stalk_mux_data
+	.get_name = cordyceps_stalk_output_get_name,
+	.get_total_bytes = cordyceps_stalk_output_total_bytes,
+	.create = cordyceps_stalk_output_create,
+	.destroy = cordyceps_stalk_output_destroy,
+	.start = cordyceps_stalk_output_start,
+	.stop = cordyceps_stalk_output_stop,
+	.encoded_packet = cordyceps_stalk_output_mux_data
 };

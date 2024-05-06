@@ -13,15 +13,20 @@ include(helpers)
 
 add_library(${CMAKE_PROJECT_NAME} MODULE
         src/cordyceps-stalk-output.c
-        src/cordyceps-stalk-output.h)
+        src/cordyceps-stalk-output.h
+        src/cordyceps-stalk-encoder.c
+        src/cordyceps-stalk-encoder.h)
 
 # Borrowing OBS' finders so we can get FFmpeg
 # Will need to fix if OBS updates... too bad!
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/.deps/obs-studio-30.1.2/cmake/finders)
+
 find_package(FFmpeg REQUIRED COMPONENTS avcodec avutil avformat)
+find_package(Libx264 REQUIRED)
 
 find_package(libobs REQUIRED)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs FFmpeg::avcodec FFmpeg::avutil FFmpeg::avformat)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs FFmpeg::avcodec FFmpeg::avutil FFmpeg::avformat
+        Libx264::Libx264)
 
 if(ENABLE_FRONTEND_API)
   find_package(obs-frontend-api REQUIRED)
