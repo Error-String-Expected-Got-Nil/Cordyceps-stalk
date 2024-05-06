@@ -26,11 +26,6 @@ struct cordyceps_stalk_output {
 	volatile bool stopping;
 
 	struct dstr path;
-
-	volatile bool realtime_mode;
-	volatile uint64_t requested_frames;
-	volatile int32_t written_frames;
-	pthread_mutex_t mutex;
 };
 
 void deactivate(struct cordyceps_stalk_output*, bool);

@@ -16,8 +16,6 @@ You should have received a copy of the GNU General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
-// TODO: Remove frame request code here, rework when encoder is done
-
 #include "cordyceps-stalk-output.h"
 
 static const char* cordyceps_stalk_output_get_name(void* type)
@@ -45,14 +43,6 @@ static void* cordyceps_stalk_output_create(obs_data_t* settings,
 	proc_handler_t* ph = obs_output_get_proc_handler(output);
 	proc_handler_add(ph, "void set_path(in string path)", ph_set_path,
 			 stream);
-	proc_handler_add(ph, "void request_frames(in int count)",
-			 ph_request_frames, stream);
-	proc_handler_add(ph, "void set_realtime_mode(in bool value)",
-			 ph_set_realtime_mode, stream);
-	proc_handler_add(ph, "void get_written_frame_count(out int count)",
-			 ph_get_written_frame_count, stream);
-
-	pthread_mutex_init(&stream->mutex, NULL);
 
 	return stream;
 }
@@ -90,10 +80,6 @@ static inline bool cordyceps_stalk_output_start_internal(
 				     "failed to initialize encoders");
 		return false;
 	}
-
-	stream->requested_frames = 0;
-	stream->realtime_mode = false;
-	stream->written_frames = 0;
 
 	stream->sent_headers = false;
 
@@ -269,21 +255,6 @@ static void cordyceps_stalk_output_mux_data(void* data,
 		}
 	}
 
-	bool quit_early = false;
-	pthread_mutex_lock(&stream->mutex);
-
-	if (!stream->realtime_mode) {
-		if (stream->requested_frames == 0) {
-			quit_early = true;
-		} else {
-			stream->requested_frames--;
-			stream->written_frames++;
-		}
-	}
-
-	pthread_mutex_unlock(&stream->mutex);
-	if (quit_early) return;
-
 	write_packet(stream, packet);
 }
 
@@ -358,43 +329,6 @@ void ph_set_path(void* data, calldata_t* cd)
 	dstr_copy(&stream->path, calldata_string(cd, "path"));
 	obs_log(LOG_INFO, "Proc triggered; Path set to '%s'",
 		stream->path.array);
-}
-
-void ph_request_frames(void* data, calldata_t* cd)
-{
-	struct cordyceps_stalk_output* stream = data;
-
-	int64_t count = calldata_int(cd, "count");
-
-	if (count < 0) count = 0;
-
-	pthread_mutex_lock(&stream->mutex);
-	stream->requested_frames += count;
-	pthread_mutex_unlock(&stream->mutex);
-}
-
-void ph_set_realtime_mode(void* data, calldata_t* cd)
-{
-	struct cordyceps_stalk_output* stream = data;
-
-	bool value = calldata_bool(cd, "value");
-
-	pthread_mutex_lock(&stream->mutex);
-	stream->realtime_mode = value;
-	pthread_mutex_unlock(&stream->mutex);
-}
-
-void ph_get_written_frame_count(void* data, calldata_t* cd)
-{
-	struct cordyceps_stalk_output* stream = data;
-
-	int64_t written_frames;
-
-	pthread_mutex_lock(&stream->mutex);
-	written_frames = stream->written_frames;
-	pthread_mutex_unlock(&stream->mutex);
-
-	calldata_set_int(cd, "count", written_frames);
 }
 
 const struct obs_output_info cordyceps_stalk_output = {
