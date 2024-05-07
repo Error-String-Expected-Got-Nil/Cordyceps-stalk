@@ -15,7 +15,8 @@ add_library(${CMAKE_PROJECT_NAME} MODULE
         src/cordyceps-stalk-output.c
         src/cordyceps-stalk-output.h
         src/cordyceps-stalk-encoder.c
-        src/cordyceps-stalk-encoder.h)
+        src/cordyceps-stalk-encoder.h
+)
 
 # Borrowing OBS' finders so we can get FFmpeg
 # Will need to fix if OBS updates... too bad!

@@ -31,6 +31,3 @@ struct cordyceps_stalk_output {
 void deactivate(struct cordyceps_stalk_output*, bool);
 bool write_packet(struct cordyceps_stalk_output*, struct encoder_packet*);
 void ph_set_path(void* data, calldata_t* cd);
-void ph_request_frames(void* data, calldata_t* cd);
-void ph_set_realtime_mode(void* data, calldata_t* cd);
-void ph_get_written_frame_count(void* data, calldata_t* cd);

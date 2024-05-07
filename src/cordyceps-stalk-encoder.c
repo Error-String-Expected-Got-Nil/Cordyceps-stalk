@@ -16,6 +16,9 @@ You should have received a copy of the GNU General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
+// Almost all of this is copied directly from obs_x264.c, with some trimming
+// for uneeded features and modifications for Cordyceps.
+
 #include "cordyceps-stalk-encoder.h"
 
 static void log_x264(void *param, int level, const char *format, va_list args)
@@ -227,6 +230,22 @@ static void* cordyceps_stalk_encoder_create(obs_data_t* settings,
 		return NULL;
 	}
 
+	cordyceps_stalk_encoder->realtime_mode = false;
+	cordyceps_stalk_encoder->requested_frames = 0;
+	pthread_mutex_init(&cordyceps_stalk_encoder->mutex, NULL);
+
+	// TODO: Proc handler is linked from modified binary since it isn't
+	//  in an official release yet
+	// obs.h header is also modified for this
+
+	proc_handler_t* ph = obs_encoder_get_proc_handler(
+		cordyceps_stalk_encoder->encoder);
+
+	proc_handler_add(ph, "void set_realtime_mode(in bool value)",
+			 ph_set_realtime_mode, cordyceps_stalk_encoder);
+	proc_handler_add(ph, "void request_frames(in int count)",
+			 ph_request_frames, cordyceps_stalk_encoder);
+
 	return cordyceps_stalk_encoder;
 }
 
@@ -245,6 +264,8 @@ static void cordyceps_stalk_encoder_destroy(void* data)
 			cordyceps_stalk_encoder->sei = NULL;
 
 			da_free(cordyceps_stalk_encoder->packet_data);
+
+			pthread_mutex_destroy(&cordyceps_stalk_encoder->mutex);
 
 			bfree(cordyceps_stalk_encoder);
 		}
@@ -349,6 +370,28 @@ static void cordyceps_stalk_encoder_get_video_info(void* data,
 	}
 
 	info->format = pref_format;
+}
+
+static void ph_set_realtime_mode(void* data, calldata_t* cd)
+{
+	struct cordyceps_stalk_encoder* cordyceps_stalk_encoder = data;
+
+	int64_t count = calldata_int(cd, "count");
+
+	pthread_mutex_lock(&cordyceps_stalk_encoder->mutex);
+	cordyceps_stalk_encoder->requested_frames += count;
+	pthread_mutex_unlock(&cordyceps_stalk_encoder->mutex);
+}
+
+static void ph_request_frames(void* data, calldata_t* cd)
+{
+	struct cordyceps_stalk_encoder* cordyceps_stalk_encoder = data;
+
+	bool value = calldata_bool(cd, "value");
+
+	pthread_mutex_lock(&cordyceps_stalk_encoder->mutex);
+	cordyceps_stalk_encoder->realtime_mode = value;
+	pthread_mutex_unlock(&cordyceps_stalk_encoder->mutex);
 }
 
 const struct obs_encoder_info cordyceps_stalk_encoder = {

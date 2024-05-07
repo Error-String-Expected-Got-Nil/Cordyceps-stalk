@@ -16,6 +16,9 @@ You should have received a copy of the GNU General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
+// Almost all of this is copied directly from obs-ffmpeg-mux.c, with some
+// trimming for uneeded features, and modifications for Cordyceps.
+
 #include "cordyceps-stalk-output.h"
 
 static const char* cordyceps_stalk_output_get_name(void* type)
@@ -238,8 +241,11 @@ static void cordyceps_stalk_output_mux_data(void* data,
 	if (!os_atomic_load_bool(&stream->active)) return;
 
 	if (!packet) {
-		obs_log(LOG_ERROR, "Cordyceps-stalk output's encoder failed!");
-		deactivate(stream, false);
+		// Skip NULL packets instead of reporting failure, as the
+		// cordyceps-stalk-encoder uses a NULL packet to indicate a
+		// frame was intentionally skipped.
+		// TODO: Add proc to cause a failure so encoder failure still
+		//  takes out the output too?
 		return;
 	}
 
