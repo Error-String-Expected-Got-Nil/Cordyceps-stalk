@@ -341,7 +341,7 @@ void ph_set_path(void* data, calldata_t* cd)
 		stream->path.array);
 }
 
-const struct obs_output_info cordyceps_stalk_output = {
+const struct obs_output_info cordyceps_stalk_output_DEP = {
 	.id = "cordyceps-stalk-output",
 	.flags = OBS_OUTPUT_VIDEO | OBS_OUTPUT_ENCODED,
 	.encoded_video_codecs = "h264",
