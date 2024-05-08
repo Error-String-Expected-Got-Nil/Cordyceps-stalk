@@ -19,7 +19,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 // Almost all of this is copied directly from obs_x264.c, with some trimming
 // for uneeded features and modifications for Cordyceps.
 
-#include "cordyceps-stalk-encoder.h"
+#include "cordyceps-stalk-encoder-DEP.h"
 
 static void log_x264(void *param, int level, const char *format, va_list args)
 {
@@ -231,8 +231,10 @@ static void* cordyceps_stalk_encoder_create(obs_data_t* settings,
 	}
 
 	cordyceps_stalk_encoder->realtime_mode = false;
-	cordyceps_stalk_encoder->requested_frames = 0;
+	cordyceps_stalk_encoder->requested_frames = 100;
 	pthread_mutex_init(&cordyceps_stalk_encoder->mutex, NULL);
+
+	cordyceps_stalk_encoder->sent_first_keyframe = false;
 
 	// TODO: Proc handler is linked from modified binary since it isn't
 	//  in an official release yet
@@ -286,6 +288,31 @@ static bool cordyceps_stalk_encoder_encode(void* data,
 
 	if (!frame || !packet || !received_packet) return false;
 
+	bool quit_early = false;
+	pthread_mutex_lock(&cordyceps_stalk_encoder->mutex);
+
+	// Encoder doesn't
+	if (!cordyceps_stalk_encoder->realtime_mode
+		     && cordyceps_stalk_encoder->sent_first_keyframe) {
+		if (cordyceps_stalk_encoder->requested_frames == 0) {
+			quit_early = true;
+		} else {
+			cordyceps_stalk_encoder->requested_frames--;
+		}
+	}
+
+	pthread_mutex_unlock(&cordyceps_stalk_encoder->mutex);
+	if (quit_early) {
+		packet->data = NULL;
+		packet->size = 0;
+		packet->type = OBS_ENCODER_VIDEO;
+		packet->pts = 0;
+		packet->dts = 0;
+		packet->keyframe = false;
+		*received_packet = true;
+		return true;
+	}
+
 	// Initialize picture data
 	x264_picture_init(&pic);
 	pic.i_pts = frame->pts;
@@ -330,6 +357,9 @@ static bool cordyceps_stalk_encoder_encode(void* data,
 	packet->pts = pic_out.i_pts;
 	packet->dts = pic_out.i_dts;
 	packet->keyframe = pic_out.b_keyframe != 0;
+
+	if (packet->keyframe)
+		cordyceps_stalk_encoder->sent_first_keyframe = true;
 
 	return true;
 }

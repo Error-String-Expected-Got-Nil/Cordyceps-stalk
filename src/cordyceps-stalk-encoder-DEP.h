@@ -22,6 +22,8 @@ struct cordyceps_stalk_encoder {
 	volatile bool realtime_mode;
 	volatile int64_t requested_frames;
 	pthread_mutex_t mutex;
+
+	bool sent_first_keyframe;
 };
 
 static void

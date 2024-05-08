@@ -22,14 +22,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 
-extern struct obs_output_info cordyceps_stalk_output;
-extern struct obs_encoder_info cordyceps_stalk_encoder;
-
 bool obs_module_load(void)
 {
-	obs_register_output(&cordyceps_stalk_output);
-	obs_register_encoder(&cordyceps_stalk_encoder);
-
 	obs_log(LOG_INFO, "plugin loaded successfully (version %s)",
 		PLUGIN_VERSION);
 	return true;

@@ -12,10 +12,10 @@ include(defaults)
 include(helpers)
 
 add_library(${CMAKE_PROJECT_NAME} MODULE
-        src/cordyceps-stalk-output.c
-        src/cordyceps-stalk-output.h
-        src/cordyceps-stalk-encoder.c
-        src/cordyceps-stalk-encoder.h
+        src/cordyceps-stalk-output-DEP.c
+        src/cordyceps-stalk-output-DEP.h
+        src/cordyceps-stalk-encoder-DEP.c
+        src/cordyceps-stalk-encoder-DEP.h
 )
 
 # Borrowing OBS' finders so we can get FFmpeg

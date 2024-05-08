@@ -19,7 +19,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 // Almost all of this is copied directly from obs-ffmpeg-mux.c, with some
 // trimming for uneeded features, and modifications for Cordyceps.
 
-#include "cordyceps-stalk-output.h"
+#include "cordyceps-stalk-output-DEP.h"
 
 static const char* cordyceps_stalk_output_get_name(void* type)
 {
@@ -240,25 +240,29 @@ static void cordyceps_stalk_output_mux_data(void* data,
 
 	if (!os_atomic_load_bool(&stream->active)) return;
 
-	if (!packet) {
-		// Skip NULL packets instead of reporting failure, as the
-		// cordyceps-stalk-encoder uses a NULL packet to indicate a
-		// frame was intentionally skipped.
-		// TODO: Add proc to cause a failure so encoder failure still
-		//  takes out the output too?
-		return;
-	}
-
 	if (!stream->sent_headers) {
 		if (!send_headers(stream)) return;
 		stream->sent_headers = true;
 	}
 
+	if (!packet) {
+		obs_log(LOG_ERROR, "Cordyceps-stalk output's encoder failed!");
+		deactivate(stream, false);
+		return;
+	}
+
 	if (os_atomic_load_bool(&stream->stopping)) {
-		if (packet->sys_dts_usec >= stream->stop_ts) {
+		if (packet->sys_dts_usec >= stream->stop_ts
+		    || packet->size == 0) {
 			deactivate(stream, true);
 			return;
 		}
+	}
+
+	// Output takes a data size 0 packet to be one that was intentionally
+	// skipped by the encoder
+	if (packet->size == 0) {
+		return;
 	}
 
 	write_packet(stream, packet);
