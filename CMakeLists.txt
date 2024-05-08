@@ -12,10 +12,6 @@ include(defaults)
 include(helpers)
 
 add_library(${CMAKE_PROJECT_NAME} MODULE
-        src/cordyceps-stalk-output-DEP.c
-        src/cordyceps-stalk-output-DEP.h
-        src/cordyceps-stalk-encoder-DEP.c
-        src/cordyceps-stalk-encoder-DEP.h
         src/cordyceps-stalk-output.c
         src/cordyceps-stalk-output.h
 )
