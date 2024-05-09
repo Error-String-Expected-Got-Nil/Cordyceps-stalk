@@ -120,6 +120,9 @@ static void cso_stop_full(struct cso_data* cso)
 {
 	if (cso->active) {
 		obs_output_end_data_capture(cso->output);
+
+		cso->requested_frames = 0;
+
 		ffmpeg_deactivate(cso);
 	}
 }
@@ -381,8 +384,6 @@ static bool init_ffmpeg(struct cso_data* cso)
 		return false;
 	}
 
-	av_dump_format(cso->context.output_ctx, 0, NULL, 1);
-
 	cso->context.initialized = true;
 
 	if (!obs_output_can_begin_data_capture(cso->output, 0)) {
@@ -437,6 +438,19 @@ static void* cso_create(obs_data_t* settings, obs_output_t* output)
 
 	av_log_set_callback(ffmpeg_log);
 
+	cso->realtime_mode = false;
+	cso->requested_frames = 0;
+	pthread_mutex_init(&cso->frame_request_mutex, NULL);
+
+	proc_handler_t* ph = obs_output_get_proc_handler(cso->output);
+
+	proc_handler_add(ph, "void set_realtime_mode(in bool value)",
+			 proc_set_realtime_mode, cso);
+	proc_handler_add(ph, "void get_realtime_mode(out bool value)",
+			 proc_get_realtime_mode, cso);
+	proc_handler_add(ph, "void request_frames(in int count)",
+			 proc_request_frames, cso);
+
 	return cso;
 }
 
@@ -452,6 +466,9 @@ static void cso_destroy(void* data)
 		pthread_mutex_destroy(&cso->write_mutex);
 		os_sem_destroy(cso->write_semaphore);
 		os_event_destroy(cso->stop_event);
+
+		pthread_mutex_destroy(&cso->frame_request_mutex);
+
 		bfree(cso);
 	}
 }
@@ -486,6 +503,21 @@ static void cso_stop(void* data, uint64_t stop_ts)
 static void cso_get_frame(void* data, struct video_data* frame)
 {
 	struct cso_data* cso = data;
+
+	bool quit_early = false;
+	pthread_mutex_lock(&cso->frame_request_mutex);
+
+	// total_bytes check is there so that at least one frame gets written
+	if (!cso->realtime_mode && cso->total_bytes != 0) {
+		if (cso->requested_frames > 0) {
+			cso->requested_frames--;
+		} else {
+			quit_early = true;
+		}
+	}
+
+	pthread_mutex_unlock(&cso->frame_request_mutex);
+	if (quit_early) return;
 
 	AVPacket* packet = NULL;
 	int ret;
@@ -562,6 +594,47 @@ static void cso_get_frame(void* data, struct video_data* frame)
 	cso->context.total_frames++;
 }
 
+static uint64_t cso_get_total_bytes(void* data)
+{
+	struct cso_data* cso = data;
+
+	return cso->total_bytes;
+}
+
+static void proc_set_realtime_mode(void* data, calldata_t* cd)
+{
+	struct cso_data* cso = data;
+
+	bool value = calldata_bool(cd, "value");
+
+	pthread_mutex_lock(&cso->frame_request_mutex);
+	cso->realtime_mode = value;
+	pthread_mutex_unlock(&cso->frame_request_mutex);
+}
+
+static void proc_get_realtime_mode(void* data, calldata_t* cd)
+{
+	struct cso_data* cso = data;
+
+	pthread_mutex_lock(&cso->frame_request_mutex);
+	bool value = cso->realtime_mode;
+	pthread_mutex_unlock(&cso->frame_request_mutex);
+
+	calldata_set_bool(cd, "value", value);
+}
+
+static void proc_request_frames(void* data, calldata_t* cd)
+{
+	struct cso_data* cso = data;
+
+	int64_t count = calldata_int(cd, "count");
+	if (count < 0) count = 0;
+
+	pthread_mutex_lock(&cso->frame_request_mutex);
+	cso->requested_frames += count;
+	pthread_mutex_unlock(&cso->frame_request_mutex);
+}
+
 struct obs_output_info cordyceps_stalk_output = {
 	.id = "cordyceps-stalk-output",
 	.flags = OBS_OUTPUT_VIDEO,
@@ -570,5 +643,6 @@ struct obs_output_info cordyceps_stalk_output = {
 	.destroy = cso_destroy,
 	.start = cso_start,
 	.stop = cso_stop,
-	.raw_video = cso_get_frame
+	.raw_video = cso_get_frame,
+	.get_total_bytes = cso_get_total_bytes
 };

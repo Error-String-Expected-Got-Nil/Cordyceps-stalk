@@ -60,4 +60,12 @@ struct cso_data {
 	pthread_t write_thread;
 
 	DARRAY(AVPacket*) packets;
+
+	volatile bool realtime_mode;
+	volatile int64_t requested_frames;
+	pthread_mutex_t frame_request_mutex;
 };
+
+static void proc_set_realtime_mode(void* data, calldata_t* cd);
+static void proc_request_frames(void* data, calldata_t* cd);
+static void proc_get_realtime_mode(void* data, calldata_t* cd);
