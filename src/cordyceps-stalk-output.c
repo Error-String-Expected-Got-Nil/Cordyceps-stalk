@@ -127,6 +127,23 @@ static void cso_stop_full(struct cso_data* cso)
 	}
 }
 
+static bool make_filepath(const char* dir, struct dstr* target)
+{
+	size_t len = strlen(dir);
+	if (dir[len - 1] != '/' && dir[len - 1] != '\\') return false;
+
+	char name_buf[1024];
+	time_t cur_time = time(NULL);
+	size_t ret = strftime(name_buf, 1024, "cordyceps %Y-%m-%d "
+					      "%H:%M:%S", localtime(&cur_time));
+	if (!ret) return false;
+
+	dstr_cat(target, dir);
+	dstr_cat(target, name_buf);
+
+	return true;
+}
+
 static bool init_ffmpeg(struct cso_data* cso)
 {
 	video_t* video = obs_output_video(cso->output);
@@ -136,8 +153,23 @@ static bool init_ffmpeg(struct cso_data* cso)
 
 	settings = obs_output_get_settings(cso->output);
 
-	config.filepath = obs_data_get_string(settings, "filepath");
+	struct dstr path;
+	dstr_init(&path);
+
+	bool path_create_success =
+		make_filepath(obs_data_get_string(settings, "dirpath"), &path);
+
+	if (!path_create_success) {
+		obs_log(LOG_WARNING, "Failed to start cordyceps stalk output; "
+				     "given path was not directory");
+		return false;
+	}
+
+	config.filepath = path.array;
 	config.gop_size = (int) obs_data_get_int(settings, "gop_size");
+
+	double crf = obs_data_get_double(settings, "crf");
+	const char* preset = obs_data_get_string(settings, "preset");
 
 	obs_data_release(settings);
 
@@ -281,9 +313,8 @@ static bool init_ffmpeg(struct cso_data* cso)
 		cso->context.video_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
 	// Open video codec
-	// TODO: Hardcoded codec settings
-	av_opt_set(cso->context.video_ctx->priv_data, "preset", "veryfast", 0);
-	av_opt_set_double(cso->context.video_ctx->priv_data, "crf", 23.0, 0);
+	av_opt_set(cso->context.video_ctx->priv_data, "preset", preset, 0);
+	av_opt_set_double(cso->context.video_ctx->priv_data, "crf", crf, 0);
 
 	if (avcodec_open2(cso->context.video_ctx, cso->context.vcodec, NULL)
 	    < 0) {
@@ -594,6 +625,21 @@ static void cso_get_frame(void* data, struct video_data* frame)
 	cso->context.total_frames++;
 }
 
+static void cso_update(void* data, obs_data_t* settings)
+{
+	struct cso_data* cso = data;
+	obs_data_t* cso_settings = obs_output_get_settings(cso->output);
+
+	obs_data_set_string(cso_settings, "dirpath",
+			    obs_data_get_string(settings, "dirpath"));
+	obs_data_set_int(cso_settings, "gop_size",
+			 obs_data_get_int(settings, "gop_size"));
+	obs_data_set_double(cso_settings, "crf",
+			    obs_data_get_double(settings, "crf"));
+	obs_data_set_string(cso_settings, "preset",
+			    obs_data_get_string(settings, "preset"));
+}
+
 static uint64_t cso_get_total_bytes(void* data)
 {
 	struct cso_data* cso = data;
@@ -644,5 +690,6 @@ struct obs_output_info cordyceps_stalk_output = {
 	.start = cso_start,
 	.stop = cso_stop,
 	.raw_video = cso_get_frame,
+	.update = cso_update,
 	.get_total_bytes = cso_get_total_bytes
 };

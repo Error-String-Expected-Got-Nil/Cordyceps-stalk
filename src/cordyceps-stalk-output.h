@@ -10,6 +10,7 @@
 #include <libavutil/opt.h>
 #include <libavutil/mastering_display_metadata.h>
 #include <util/threading.h>
+#include <util/dstr.h>
 
 #include "include/obs-ffmpeg-formats.h"
 
