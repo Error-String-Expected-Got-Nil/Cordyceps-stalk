@@ -43,6 +43,9 @@ bool obs_module_load()
 }
 
 void csvr_status(obs_data_t* request, obs_data_t* response, void* priv);
+void csvr_get_fps(obs_data_t* request, obs_data_t* response, void* priv);
+void csvr_update_settings(obs_data_t* request, obs_data_t* response,
+			  void* priv);
 
 void obs_module_post_load()
 {
@@ -57,6 +60,11 @@ void obs_module_post_load()
 
 	csv = obs_websocket_register_vendor("cordyceps_stalk");
 
+	obs_websocket_vendor_register_request(csv, "get_fps", csvr_get_fps,
+					      cso);
+	obs_websocket_vendor_register_request(csv, "update_settings",
+					      csvr_update_settings, cso);
+
 	obs_websocket_vendor_register_request(csv, "status", csvr_status, NULL);
 }
 
@@ -68,6 +76,37 @@ void csvr_status(obs_data_t* request, obs_data_t* response, void* priv)
 	obs_log(LOG_INFO, "Cordyceps-stalk status requested");
 
 	obs_data_set_bool(response, "active", true);
+}
+
+void csvr_get_fps(obs_data_t* request, obs_data_t* response, void* priv)
+{
+	UNUSED_PARAMETER(request);
+
+	obs_output_t* output = priv;
+	const struct video_output_info* voi =
+		video_output_get_info(obs_output_video(output));
+
+	obs_data_set_int(response, "fps_num", voi->fps_num);
+	obs_data_set_int(response, "fps_den", voi->fps_den);
+}
+
+void csvr_update_settings(obs_data_t* request, obs_data_t* response,
+			  void* priv)
+{
+	UNUSED_PARAMETER(response);
+
+	obs_output_t* output = priv;
+
+	const char* dirpath = obs_data_get_string(request, "dirpath");
+	int gop_size = (int) obs_data_get_int(request, "gop_size");
+	double crf = obs_data_get_double(request, "crf");
+	const char* preset = obs_data_get_string(request, "preset");
+
+	obs_log(LOG_INFO, "Got settings update request: dirpath = \"%s\", "
+			  "gop_size = %d, crf = %f, preset = \"%s\"",
+		dirpath, gop_size, crf, preset);
+
+	obs_output_update(output, request);
 }
 
 void obs_module_unload()
