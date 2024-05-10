@@ -135,7 +135,8 @@ static bool make_filepath(const char* dir, struct dstr* target)
 	char name_buf[1024];
 	time_t cur_time = time(NULL);
 	size_t ret = strftime(name_buf, 1024, "cordyceps %Y-%m-%d "
-					      "%H:%M:%S", localtime(&cur_time));
+					      "%H:%M:%S.mp4",
+			      localtime(&cur_time));
 	if (!ret) return false;
 
 	dstr_cat(target, dir);
