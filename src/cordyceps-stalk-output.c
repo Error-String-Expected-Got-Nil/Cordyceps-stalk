@@ -135,7 +135,7 @@ static bool make_filepath(const char* dir, struct dstr* target)
 	char name_buf[1024];
 	time_t cur_time = time(NULL);
 	size_t ret = strftime(name_buf, 1024, "cordyceps %Y-%m-%d "
-					      "%H:%M:%S.mp4",
+					      "%H-%M-%S.mp4",
 			      localtime(&cur_time));
 	if (!ret) return false;
 
@@ -434,6 +434,8 @@ static bool init_ffmpeg(struct cso_data* cso)
 	obs_output_begin_data_capture(cso->output, 0);
 	cso->write_thread_active = true;
 
+	obs_log(LOG_INFO, "Cordyceps-stalk output starting");
+
 	return true;
 }
 
@@ -442,7 +444,7 @@ static void* start_thread(void* data)
 	struct cso_data* cso = data;
 
 	if (!init_ffmpeg(cso)) obs_output_signal_stop(cso->output,
-				       OBS_OUTPUT_ERROR);
+				       OBS_OUTPUT_CONNECT_FAILED);
 
 	// TODO: Possible memory leak on failure to init
 
