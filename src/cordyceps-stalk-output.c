@@ -82,9 +82,11 @@ static int process_packet(struct cso_data* cso)
 
 	cso->total_bytes += packet->size;
 
-	ret = av_interleaved_write_frame(cso->context.output_ctx, packet);
+	ret = av_write_frame(cso->context.output_ctx, packet);
 	if (ret < 0) obs_log(LOG_WARNING, "Error while writing packet: %s",
 			av_err2str(ret));
+	// Flush buffer, I want packets written immediately
+	av_write_frame(cso->context.output_ctx, NULL);
 
 	av_packet_free(&packet);
 	return ret;

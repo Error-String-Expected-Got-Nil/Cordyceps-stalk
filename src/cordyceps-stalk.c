@@ -46,7 +46,6 @@ bool obs_module_load()
 void csvc_record_start_success(void* data, calldata_t* cd);
 void csvc_record_start_fail(void* data, calldata_t* cd);
 void csvr_status(obs_data_t* request, obs_data_t* response, void* priv);
-void csvr_get_fps(obs_data_t* request, obs_data_t* response, void* priv);
 void csvr_update_settings(obs_data_t* request, obs_data_t* response,
 			  void* priv);
 void csvr_start_recording(obs_data_t* request, obs_data_t* response,
@@ -55,6 +54,8 @@ void csvr_stop_recording(obs_data_t* request, obs_data_t* response,
 			 void* priv);
 void csvr_set_realtime_mode(obs_data_t* request, obs_data_t* response,
 			    void* priv);
+void csvr_request_frames(obs_data_t* request, obs_data_t* response,
+			 void* priv);
 
 void obs_module_post_load()
 {
@@ -73,8 +74,6 @@ void obs_module_post_load()
 	signal_handler_connect(sh, "activate", csvc_record_start_success, &csv);
 	signal_handler_connect(sh, "stop", csvc_record_start_fail, &csv);
 
-	obs_websocket_vendor_register_request(csv, "get_fps", csvr_get_fps,
-					      cso);
 	obs_websocket_vendor_register_request(csv, "update_settings",
 					      csvr_update_settings, cso);
 	obs_websocket_vendor_register_request(csv, "start_recording",
@@ -83,6 +82,8 @@ void obs_module_post_load()
 					      csvr_stop_recording, cso);
 	obs_websocket_vendor_register_request(csv, "set_realtime_mode",
 					      csvr_set_realtime_mode, cso);
+	obs_websocket_vendor_register_request(csv, "request_frames",
+					      csvr_request_frames, cso);
 
 	obs_websocket_vendor_register_request(csv, "status", csvr_status, NULL);
 }
@@ -119,18 +120,6 @@ void csvr_status(obs_data_t* request, obs_data_t* response, void* priv)
 	obs_log(LOG_INFO, "Cordyceps-stalk status requested");
 
 	obs_data_set_bool(response, "active", true);
-}
-
-void csvr_get_fps(obs_data_t* request, obs_data_t* response, void* priv)
-{
-	UNUSED_PARAMETER(request);
-
-	obs_output_t* output = priv;
-	const struct video_output_info* voi =
-		video_output_get_info(obs_output_video(output));
-
-	obs_data_set_int(response, "fps_num", voi->fps_num);
-	obs_data_set_int(response, "fps_den", voi->fps_den);
 }
 
 void csvr_update_settings(obs_data_t* request, obs_data_t* response,
@@ -195,7 +184,20 @@ void csvr_set_realtime_mode(obs_data_t* request, obs_data_t* response,
 	calldata_destroy(cd);
 }
 
+void csvr_request_frames(obs_data_t* request, obs_data_t* response,
+			 void* priv)
+{
+	UNUSED_PARAMETER(response);
+
+	obs_output_t* output = priv;
+	proc_handler_t* ph = obs_output_get_proc_handler(output);
+	calldata_t* cd = calldata_create();
+	calldata_set_int(cd, "count", obs_data_get_int(request, "count"));
+	proc_handler_call(ph, "request_frames", cd);
+	calldata_destroy(cd);
+}
+
 void obs_module_unload()
 {
-	obs_log(LOG_INFO, "plugin unloaded");
+	obs_output_release(cso);
 }
